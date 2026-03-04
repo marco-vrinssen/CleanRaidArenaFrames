@@ -24,6 +24,19 @@ end
 hooksecurefunc("DefaultCompactUnitFrameSetup", ApplyHealthBarGradient)
 hooksecurefunc("DefaultCompactMiniFrameSetup", ApplyHealthBarGradient)
 
+-- Limit raid and party frames to display only 1 debuff
+
+local function HideExtraDebuffs(frame)
+    if not frame or not frame.debuffFrames then return end
+    for i = 2, #frame.debuffFrames do
+        if frame.debuffFrames[i] then
+            frame.debuffFrames[i]:Hide()
+        end
+    end
+end
+
+hooksecurefunc("CompactUnitFrame_UpdateAuras", HideExtraDebuffs)
+
 local ACCESSORY_SIZE = 40
 
 -- Reposition arena accessories and hide casting bar for cleaner appearance

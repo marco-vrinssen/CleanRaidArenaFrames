@@ -1,4 +1,4 @@
-# Clean Raid Arena Frames
+# Clean Raid Arena
 
 Minimal WoW addon for cleaner raid and arena unit frames.
 
