@@ -6,7 +6,7 @@ local accessorySize = 40
 
 -- Adjust arena member frame layout to relocate accessories because default placement overlaps important content
 
-local function AdjustArenaMember(memberFrame)
+local function adjustArenaMember(memberFrame)
     if not memberFrame then return end
 
     -- Hide casting bar to reduce visual noise because cast information is rarely needed on arena frames
@@ -45,22 +45,24 @@ end
 
 -- Hook arena frame layout to apply adjustments because mixin hooks fail after frame creation
 
-local function SetupArenaHook()
-    if not CompactArenaFrame or CompactArenaFrame.cleanArenaHooked then return end
-    CompactArenaFrame.cleanArenaHooked = true
+local function setupArenaHook()
+    if not CompactArenaFrame or CompactArenaFrame.isCleanArenaHooked then return end
+
+    CompactArenaFrame.isCleanArenaHooked = true
+
     hooksecurefunc(CompactArenaFrame, "UpdateLayout", function(self)
         for _, memberFrame in ipairs(self.memberUnitFrames) do
-            AdjustArenaMember(memberFrame)
+            adjustArenaMember(memberFrame)
         end
     end)
 end
 
 -- Apply arena hooks immediately to catch existing frames because frames may already be created at load time
 
-SetupArenaHook()
+setupArenaHook()
 
 -- Hook frame generation to apply layout on new frames because arena frames are created lazily on demand
 
 if CompactArenaFrame_Generate then
-    hooksecurefunc("CompactArenaFrame_Generate", SetupArenaHook)
+    hooksecurefunc("CompactArenaFrame_Generate", setupArenaHook)
 end

@@ -1,4 +1,4 @@
--- Manages raid frame auras: hides extra debuffs and highlights healer buffs
+-- Manage raid frame auras by hiding extra debuffs and highlighting specific buffs because standard frames become unreadable in combat clumps
 
 local trackedHealerSpellIds = {
     [194384]  = true, -- Atonement          (Discipline Priest)
@@ -9,87 +9,111 @@ local trackedHealerSpellIds = {
     [33763]   = true, -- Lifebloom          (Restoration Druid)
 }
 
-local glowFrameCache    = {}
+local glowFrameCache = {}
 local pendingGlowFrames = {}
 local visitedBuffFrames = {}
 
--- type() returns "number" for secret values, so pcall guards the table access itself
-local function IsTrackedHealerAura(spellId)
-    if type(spellId) ~= "number" then return false end
-    local ok, result = pcall(function() return trackedHealerSpellIds[spellId] == true end)
-    return ok and result
+-- Safely verify if a spell qualifies for healer tracking because Blizzard sometimes passes non-numeric data that breaks table lookups
+
+local function isTrackedHealerAura(spellIdentifier)
+    if type(spellIdentifier) ~= "number" then return false end
+
+    local isSuccess, isTracked = pcall(function() return trackedHealerSpellIds[spellIdentifier] == true end)
+
+    return isSuccess and isTracked
 end
 
--- Returns a cached glow frame or creates one from the Blizzard spell alert template
-local function GetOrCreateGlowFrame(buffFrame)
+-- Return a cached overlay or construct a new glowing template frame because instantiating infinite animations depletes client memory quickly
+
+local function getOrCreateGlowFrame(buffFrame)
     if glowFrameCache[buffFrame] then return glowFrameCache[buffFrame] end
 
     C_AddOns.LoadAddOn("Blizzard_ActionBar")
 
-    local glow = CreateFrame("Frame", nil, buffFrame, "ActionButtonSpellAlertTemplate")
-    glow:SetSize(buffFrame:GetWidth() * 1.4, buffFrame:GetHeight() * 1.4)
-    glow:SetPoint("TOPLEFT",     buffFrame, "TOPLEFT",     -4,  4)
-    glow:SetPoint("BOTTOMRIGHT", buffFrame, "BOTTOMRIGHT",  4, -4)
-    glow.ProcStartFlipbook:Hide() -- prevents golden grid artifact
-    glow:Hide()
+    local glowEffectFrame = CreateFrame("Frame", nil, buffFrame, "ActionButtonSpellAlertTemplate")
 
-    glowFrameCache[buffFrame] = glow
-    return glow
+    glowEffectFrame:SetSize(buffFrame:GetWidth() * 1.4, buffFrame:GetHeight() * 1.4)
+    glowEffectFrame:SetPoint("TOPLEFT", buffFrame, "TOPLEFT", -4, 4)
+    glowEffectFrame:SetPoint("BOTTOMRIGHT", buffFrame, "BOTTOMRIGHT", 4, -4)
+    glowEffectFrame.ProcStartFlipbook:Hide()
+    glowEffectFrame:Hide()
+
+    glowFrameCache[buffFrame] = glowEffectFrame
+
+    return glowEffectFrame
 end
 
--- Skips the intro flash and plays only the steady loop
-local function ShowHealerGlow(buffFrame)
-    local glow = GetOrCreateGlowFrame(buffFrame)
-    if glow.ProcStartAnim:IsPlaying() then glow.ProcStartAnim:Stop() end
-    glow:Show()
-    if not glow.ProcLoop:IsPlaying() then glow.ProcLoop:Play() end
+-- Play the steady outer loop highlight animation immediately because the initial start flash creates visual artifacting on tiny raid buttons
+
+local function showHealerGlow(buffFrame)
+    local glowEffectFrame = getOrCreateGlowFrame(buffFrame)
+
+    if glowEffectFrame.ProcStartAnim:IsPlaying() then glowEffectFrame.ProcStartAnim:Stop() end
+
+    glowEffectFrame:Show()
+
+    if not glowEffectFrame.ProcLoop:IsPlaying() then glowEffectFrame.ProcLoop:Play() end
 end
 
-local function HideHealerGlow(buffFrame)
-    local glow = glowFrameCache[buffFrame]
-    if not glow then return end
-    glow.ProcLoop:Stop()
-    glow.ProcStartAnim:Stop()
-    glow:Hide()
+-- Stop playing the highlight loop entirely because holding animations while invisible continues to waste processing cycles unnecessarily
+
+local function hideHealerGlow(buffFrame)
+    local glowEffectFrame = glowFrameCache[buffFrame]
+
+    if not glowEffectFrame then return end
+
+    glowEffectFrame.ProcLoop:Stop()
+    glowEffectFrame.ProcStartAnim:Stop()
+    glowEffectFrame:Hide()
 end
 
--- Marks visited frames and which of those should glow; does not touch glow state directly
-local function EvaluateHealerGlow(buffFrame, aura)
+-- Flag visited internal buff frames and prepare pending glows during the sorting pass because directly modifying them here causes tearing
+
+local function evaluateHealerGlow(buffFrame, auraDataStructure)
     if not buffFrame then return end
+
     visitedBuffFrames[buffFrame] = true
-    local spellId = aura and type(aura.spellId) == "number" and aura.spellId
-    if spellId and IsTrackedHealerAura(spellId) then
+
+    local spellIdentifier = auraDataStructure and type(auraDataStructure.spellId) == "number" and auraDataStructure.spellId
+
+    if spellIdentifier and isTrackedHealerAura(spellIdentifier) then
         pendingGlowFrames[buffFrame] = true
     end
 end
 
--- Resolves glow state after all UtilSetBuff calls for this pass are done:
---   visited frames        → apply pending state (show or hide)
---   unvisited + hidden    → clear stale glow (empty slot)
---   unvisited + shown     → aura unchanged, leave glow alone
-local function OnUpdateAuras(frame)
-    if not frame then return end
-    if frame.buffFrames then
-        for i = 1, #frame.buffFrames do
-            local f = frame.buffFrames[i]
-            if f then
-                if visitedBuffFrames[f] then
-                    if pendingGlowFrames[f] then ShowHealerGlow(f) else HideHealerGlow(f) end
-                elseif not f:IsShown() then
-                    HideHealerGlow(f)
+-- Resolve final glow states hiding extranous debuffs after setup completes because modifying frames before layout finishes overwrites our changes
+
+local function onUpdateAuras(unitFrame)
+    if not unitFrame then return end
+
+    if unitFrame.buffFrames then
+        for frameIndex = 1, #unitFrame.buffFrames do
+            local buffFrame = unitFrame.buffFrames[frameIndex]
+
+            if buffFrame then
+                if visitedBuffFrames[buffFrame] then
+                    if pendingGlowFrames[buffFrame] then
+                        showHealerGlow(buffFrame)
+                    else
+                        hideHealerGlow(buffFrame)
+                    end
+                elseif not buffFrame:IsShown() then
+                    hideHealerGlow(buffFrame)
                 end
             end
         end
     end
-    for f in pairs(pendingGlowFrames) do pendingGlowFrames[f] = nil end
-    for f in pairs(visitedBuffFrames) do visitedBuffFrames[f] = nil end
-    if frame.debuffFrames then
-        for i = 2, #frame.debuffFrames do
-            local f = frame.debuffFrames[i]
-            if f then f:Hide() end
+
+    for clearedFrame in pairs(pendingGlowFrames) do pendingGlowFrames[clearedFrame] = nil end
+    for clearedFrame in pairs(visitedBuffFrames) do visitedBuffFrames[clearedFrame] = nil end
+
+    if unitFrame.debuffFrames then
+        for frameIndex = 2, #unitFrame.debuffFrames do
+            local debuffFrame = unitFrame.debuffFrames[frameIndex]
+            if debuffFrame then debuffFrame:Hide() end
         end
     end
 end
 
-hooksecurefunc("CompactUnitFrame_UpdateAuras", OnUpdateAuras)
-hooksecurefunc("CompactUnitFrame_UtilSetBuff", EvaluateHealerGlow)
+hooksecurefunc("CompactUnitFrame_UpdateAuras", onUpdateAuras)
+hooksecurefunc("CompactUnitFrame_UtilSetBuff", evaluateHealerGlow)

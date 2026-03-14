@@ -8,18 +8,21 @@ local bottomColor = CreateColor(0, 0, 0, 0)
 
 -- Add gradient texture to healthbar to simulate lighting depth because flat color bars look two-dimensional
 
-local function ApplyHealthBarGradient(frame)
-    if not frame or not frame.healthBar then return end
-    local healthBar = frame.healthBar
+local function applyHealthBarGradient(unitFrame)
+    if not unitFrame or not unitFrame.healthBar then return end
+
+    local healthBar = unitFrame.healthBar
     if healthBar.cleanGradient then return end
-    local gradient = healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
-    gradient:SetAllPoints(healthBar)
-    gradient:SetColorTexture(1, 1, 1, 1)
-    gradient:SetGradient("VERTICAL", bottomColor, topColor)
-    healthBar.cleanGradient = gradient
+
+    local gradientTexture = healthBar:CreateTexture(nil, "ARTWORK", nil, 7)
+    gradientTexture:SetAllPoints(healthBar)
+    gradientTexture:SetColorTexture(1, 1, 1, 1)
+    gradientTexture:SetGradient("VERTICAL", bottomColor, topColor)
+
+    healthBar.cleanGradient = gradientTexture
 end
 
 -- Hook frame setup functions to apply gradient on creation because raid and arena frames are generated dynamically
 
-hooksecurefunc("DefaultCompactUnitFrameSetup", ApplyHealthBarGradient)
-hooksecurefunc("DefaultCompactMiniFrameSetup", ApplyHealthBarGradient)
+hooksecurefunc("DefaultCompactUnitFrameSetup", applyHealthBarGradient)
+hooksecurefunc("DefaultCompactMiniFrameSetup", applyHealthBarGradient)
